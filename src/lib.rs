@@ -42,6 +42,8 @@ use core::fmt;
 use core::ops::Deref;
 use core::time::Duration;
 #[cfg(feature = "std")]
+use std::net::IpAddr;
+#[cfg(feature = "std")]
 use std::time::SystemTime;
 
 /// A DER-encoded X.509 private key, in one of several formats
@@ -476,6 +478,79 @@ impl From<Vec<u8>> for Der<'static> {
 impl fmt::Debug for Der<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Der").field(&self.as_ref()).finish()
+    }
+}
+
+/// Encodes ways a client can know the expected name of the server.
+///
+/// This currently covers knowing the DNS name of the server, but
+/// will be extended in the future to supporting privacy-preserving names
+/// for the server ("ECH").  For this reason this enum is `non_exhaustive`.
+///
+/// # Making one
+///
+/// If you have a DNS name as a `&str`, this type implements `TryFrom<&str>`,
+/// so you can do:
+///
+/// ```
+/// use rustls_pki_types::ServerName;
+/// ServerName::try_from("example.com").expect("invalid DNS name");
+///
+/// // or, alternatively...
+///
+/// let x = "example.com".try_into().expect("invalid DNS name");
+/// # let _: ServerName = x;
+/// ```
+#[cfg(all(feature = "std", feature = "alloc"))]
+#[non_exhaustive]
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub enum ServerName {
+    /// The server is identified by a DNS name.  The name
+    /// is sent in the TLS Server Name Indication (SNI)
+    /// extension.
+    DnsName(DnsName),
+
+    /// The server is identified by an IP address. SNI is not
+    /// done.
+    IpAddress(IpAddr),
+}
+
+#[cfg(all(feature = "std", feature = "alloc"))]
+impl fmt::Debug for ServerName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::DnsName(d) => f.debug_tuple("DnsName").field(&d.as_ref()).finish(),
+            Self::IpAddress(i) => f.debug_tuple("IpAddress").field(i).finish(),
+        }
+    }
+}
+
+#[cfg(all(feature = "std", feature = "alloc"))]
+impl ServerName {
+    /// Return the name that should go in the SNI extension.
+    /// If [`None`] is returned, the SNI extension is not included
+    /// in the handshake.
+    pub fn for_sni(&self) -> Option<DnsNameRef> {
+        match self {
+            Self::DnsName(dns_name) => Some(dns_name.borrow()),
+            Self::IpAddress(_) => None,
+        }
+    }
+}
+
+/// Attempt to make a ServerName from a string by parsing
+/// it as a DNS name.
+#[cfg(all(feature = "std", feature = "alloc"))]
+impl TryFrom<&str> for ServerName {
+    type Error = InvalidDnsNameError;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match DnsNameRef::try_from(s) {
+            Ok(dns) => Ok(Self::DnsName(dns.to_owned())),
+            Err(InvalidDnsNameError) => match s.parse() {
+                Ok(ip) => Ok(Self::IpAddress(ip)),
+                Err(_) => Err(InvalidDnsNameError),
+            },
+        }
     }
 }
 
