@@ -500,6 +500,64 @@ impl CertificateDer<'_> {
     }
 }
 
+/// A TLS-encoded Encrypted Client Hello (ECH) configuration; as specified in
+/// [draft-ietf-tls-esni-18 §4](https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-18#section-4)
+#[derive(Clone)]
+pub struct EchConfigBytes<'a>(BytesInner<'a>);
+
+impl EchConfigBytes<'_> {
+    /// Converts this config into its owned variant, unfreezing borrowed content (if any)
+    #[cfg(feature = "alloc")]
+    pub fn into_owned(self) -> EchConfigBytes<'static> {
+        EchConfigBytes(self.0.into_owned())
+    }
+}
+
+impl fmt::Debug for EchConfigBytes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        hex(f, self.as_ref())
+    }
+}
+
+impl PartialEq for EchConfigBytes<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref().eq(other.as_ref())
+    }
+}
+
+impl Eq for EchConfigBytes<'_> {}
+
+impl AsRef<[u8]> for EchConfigBytes<'_> {
+    fn as_ref(&self) -> &[u8] {
+        match &self.0 {
+            #[cfg(feature = "alloc")]
+            BytesInner::Owned(vec) => vec.as_ref(),
+            BytesInner::Borrowed(slice) => slice,
+        }
+    }
+}
+
+impl Deref for EchConfigBytes<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+impl<'a> From<&'a [u8]> for EchConfigBytes<'a> {
+    fn from(slice: &'a [u8]) -> Self {
+        Self(BytesInner::Borrowed(slice))
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> From<Vec<u8>> for EchConfigBytes<'a> {
+    fn from(vec: Vec<u8>) -> Self {
+        Self(BytesInner::Owned(vec))
+    }
+}
+
 /// An abstract signature verification algorithm.
 ///
 /// One of these is needed per supported pair of public key type (identified
