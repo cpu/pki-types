@@ -465,6 +465,13 @@ impl<'a> From<Vec<u8>> for CertificateSigningRequestDer<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CertificateDer<'a>(Der<'a>);
 
+impl<'a> CertificateDer<'a> {
+    /// A const constructor to create a `CertificateDer` from [`Der`].
+    pub const fn from_der(der: Der<'a>) -> Self {
+        Self(der)
+    }
+}
+
 impl AsRef<[u8]> for CertificateDer<'_> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
