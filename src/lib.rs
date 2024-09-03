@@ -70,6 +70,7 @@ use std::time::SystemTime;
 #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "web"))]
 use web_time::SystemTime;
 
+mod base64;
 mod server_name;
 
 pub use server_name::{

@@ -164,13 +164,13 @@ pub(crate) enum Error {
     InsufficientOutputSpace,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct CodePoint(u8);
 
 impl CodePoint {
-    const WHITESPACE: CodePoint = CodePoint(0xf0);
-    const PAD: CodePoint = CodePoint(0xf1);
-    const INVALID: CodePoint = CodePoint(0xf2);
+    const WHITESPACE: Self = Self(0xf0);
+    const PAD: Self = Self(0xf1);
+    const INVALID: Self = Self(0xf2);
 }
 
 impl CodePoint {
@@ -530,7 +530,7 @@ fn u8_broadcast16(x: u16) -> u8 {
     0u8.wrapping_sub(msb as u8)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
     #[test]
@@ -600,7 +600,7 @@ mod tests {
     fn decode(input: &[u8]) -> alloc::vec::Vec<u8> {
         let length = decoded_length(input.len());
 
-        let mut v = std::vec![0u8; length];
+        let mut v = alloc::vec![0u8; length];
         let used = decode_both(input, &mut v).unwrap().len();
         v.truncate(used);
 
