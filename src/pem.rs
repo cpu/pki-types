@@ -9,12 +9,11 @@ use core::ops::ControlFlow;
 #[cfg(feature = "std")]
 use std::io::{self, ErrorKind};
 
-use pki_types::{
+use crate::base64;
+use crate::{
     CertificateDer, CertificateRevocationListDer, CertificateSigningRequestDer, PrivatePkcs1KeyDer,
     PrivatePkcs8KeyDer, PrivateSec1KeyDer, SubjectPublicKeyInfoDer,
 };
-
-use crate::base64;
 
 /// The contents of a single recognised block in a PEM file.
 #[non_exhaustive]
