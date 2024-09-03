@@ -19,7 +19,14 @@
 //! base64-encoded DER, PEM objects are delimited by header and footer lines which indicate the type
 //! of object contained in the PEM blob.
 //!
-//! The [rustls-pemfile](https://docs.rs/rustls-pemfile) crate can be used to parse PEM files.
+//! Types here can be created from:
+//!
+//! - DER using (for example) [`PrivatePkcs8KeyDer::from`].
+//! - PEM using (for example) [`PrivatePkcs8KeyDer::decode_from_pem`] via the [`DecodePem`] extension trait.
+//!
+//! `decode_from_pem` returns the first matching item from the given input.
+//! It is usual for given PEM file to contain multiple items: if you wish
+//! to examine all of these you can use the iterator-based API in the [`pem`] module.
 //!
 //! ## Creating new certificates and keys
 //!
@@ -117,6 +124,25 @@ impl<'a> PrivateKeyDer<'a> {
             PrivateKeyDer::Sec1(key) => key.secret_sec1_der(),
             PrivateKeyDer::Pkcs8(key) => key.secret_pkcs8_der(),
         }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl DecodePem for PrivateKeyDer<'static> {
+    fn from_pem_items(
+        iter: &mut impl Iterator<Item = Result<pem::Item, pem::Error>>,
+    ) -> Result<Self, pem::Error> {
+        for item in iter {
+            match item {
+                Ok(pem::Item::Pkcs1Key(pkcs1)) => return Ok(Self::Pkcs1(pkcs1)),
+                Ok(pem::Item::Pkcs8Key(pkcs8)) => return Ok(Self::Pkcs8(pkcs8)),
+                Ok(pem::Item::Sec1Key(sec1)) => return Ok(Self::Sec1(sec1)),
+                Ok(_) => {}
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(pem::Error::NoItemsFound)
     }
 }
 
@@ -481,6 +507,30 @@ impl<'a> CertificateDer<'a> {
     }
 }
 
+#[cfg(feature = "alloc")]
+impl DecodePem for Vec<CertificateDer<'static>> {
+    /// This returns _all_ certificate items appearing in `pem_slice`.
+    fn from_pem_items(
+        iter: &mut impl Iterator<Item = Result<pem::Item, pem::Error>>,
+    ) -> Result<Self, pem::Error> {
+        let mut out = Self::new();
+
+        for item in iter {
+            match item {
+                Ok(pem::Item::X509Certificate(x509)) => out.push(x509),
+                Ok(_) => {}
+                Err(err) => return Err(err),
+            }
+        }
+
+        if out.is_empty() {
+            Err(pem::Error::NoItemsFound)
+        } else {
+            Ok(out)
+        }
+    }
+}
+
 impl AsRef<[u8]> for CertificateDer<'_> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
@@ -754,6 +804,53 @@ impl UnixTime {
     /// Number of seconds since the Unix epoch
     pub fn as_secs(&self) -> u64 {
         self.0
+    }
+}
+
+/// An extension trait for types we can decode from PEM.
+#[cfg(feature = "alloc")]
+pub trait DecodePem {
+    /// Underlying function to be implemented by target types.
+    ///
+    /// This is not intended for direct use, instead use `decode_from_pem`
+    /// and other provided functions in this trait.
+    fn from_pem_items(
+        iter: &mut impl Iterator<Item = Result<pem::Item, pem::Error>>,
+    ) -> Result<Self, pem::Error>
+    where
+        Self: Sized;
+
+    /// Decode this type from PEM contained a byte slice.
+    fn decode_from_pem(pem: &[u8]) -> Result<Self, pem::Error>
+    where
+        Self: Sized,
+    {
+        Self::from_pem_items(&mut pem::read_all_from_slice(pem))
+    }
+
+    /// Decode this type from PEM contained in a `str`.
+    fn decode_from_pem_str(pem: &str) -> Result<Self, pem::Error>
+    where
+        Self: Sized,
+    {
+        Self::decode_from_pem(pem.as_bytes())
+    }
+
+    /// Decode this type from PEM present in a buffered reader.
+    #[cfg(feature = "std")]
+    fn decode_from_pem_reader(rd: &mut impl std::io::BufRead) -> Result<Self, pem::IoError>
+    where
+        Self: Sized,
+    {
+        let mut items = Vec::new();
+        // iterate over items to slough off io errors
+        for item in pem::read_all(rd) {
+            match item {
+                Ok(item) => items.push(Ok(item)),
+                Err(err) => return Err(err),
+            }
+        }
+        Self::from_pem_items(&mut items.into_iter()).map_err(pem::IoError::Pem)
     }
 }
 

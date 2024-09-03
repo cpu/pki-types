@@ -73,6 +73,9 @@ pub enum Error {
 
     /// base64 decode error
     Base64Decode(String),
+
+    /// no items found of desired type
+    NoItemsFound,
 }
 
 /// Errors that may arise from reading from a file-like stream
@@ -268,4 +271,30 @@ fn read_until_newline<R: io::BufRead + ?Sized>(r: &mut R, buf: &mut Vec<u8>) -> 
 #[cfg(feature = "std")]
 pub fn read_all(rd: &mut dyn io::BufRead) -> impl Iterator<Item = Result<Item, IoError>> + '_ {
     iter::from_fn(move || read_one(rd).transpose())
+}
+
+/// Iterate over all PEM sections by reading `pem_slice`
+pub(crate) fn read_all_from_slice(
+    pem_slice: &[u8],
+) -> impl Iterator<Item = Result<Item, Error>> + '_ {
+    struct SliceIter<'a> {
+        current: &'a [u8],
+    }
+
+    impl Iterator for SliceIter<'_> {
+        type Item = Result<Item, Error>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match read_one_from_slice(self.current) {
+                Ok(Some((item, rest))) => {
+                    self.current = rest;
+                    Some(Ok(item))
+                }
+                Ok(None) => None,
+                Err(err) => Some(Err(err)),
+            }
+        }
+    }
+
+    SliceIter { current: pem_slice }
 }
