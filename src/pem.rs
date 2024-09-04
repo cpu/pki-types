@@ -74,6 +74,17 @@ pub enum Error {
     Base64Decode(String),
 }
 
+/// Errors that may arise from reading from a file-like stream
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub enum IoError {
+    /// a `pem::Error` that occurred while parsing the stream contents
+    Pem(Error),
+
+    /// a `std::io::Error` that occurred while reading from a `io::BufRead`
+    Io(io::Error),
+}
+
 /// Extract and decode the next PEM section from `input`
 ///
 /// - `Ok(None)` is returned if there is no PEM section to read from `input`
@@ -109,14 +120,14 @@ pub fn read_one_from_slice(mut input: &[u8]) -> Result<Option<(Item, &[u8])>, Er
 /// You can use this function to build an iterator, for example:
 /// `for item in iter::from_fn(|| read_one(rd).transpose()) { ... }`
 #[cfg(feature = "std")]
-pub fn read_one(rd: &mut dyn io::BufRead) -> Result<Option<Item>, io::Error> {
+pub fn read_one(rd: &mut dyn io::BufRead) -> Result<Option<Item>, IoError> {
     let mut b64buf = Vec::with_capacity(1024);
     let mut section = None::<(Vec<_>, Vec<_>)>;
     let mut line = Vec::with_capacity(80);
 
     loop {
         line.clear();
-        let len = read_until_newline(rd, &mut line)?;
+        let len = read_until_newline(rd, &mut line).map_err(IoError::Io)?;
 
         let next_line = if len == 0 {
             None
@@ -127,27 +138,7 @@ pub fn read_one(rd: &mut dyn io::BufRead) -> Result<Option<Item>, io::Error> {
         match read_one_impl(next_line, &mut section, &mut b64buf) {
             Ok(ControlFlow::Break(opt)) => return Ok(opt),
             Ok(ControlFlow::Continue(())) => continue,
-            Err(e) => {
-                return Err(match e {
-                    Error::MissingSectionEnd { end_marker } => io::Error::new(
-                        ErrorKind::InvalidData,
-                        format!(
-                            "section end {:?} missing",
-                            String::from_utf8_lossy(&end_marker)
-                        ),
-                    ),
-
-                    Error::IllegalSectionStart { line } => io::Error::new(
-                        ErrorKind::InvalidData,
-                        format!(
-                            "illegal section start: {:?}",
-                            String::from_utf8_lossy(&line)
-                        ),
-                    ),
-
-                    Error::Base64Decode(err) => io::Error::new(ErrorKind::InvalidData, err),
-                });
-            }
+            Err(e) => return Err(IoError::Pem(e)),
         }
     }
 }
@@ -274,6 +265,6 @@ fn read_until_newline<R: io::BufRead + ?Sized>(r: &mut R, buf: &mut Vec<u8>) -> 
 
 /// Extract and return all PEM sections by reading `rd`.
 #[cfg(feature = "std")]
-pub fn read_all(rd: &mut dyn io::BufRead) -> impl Iterator<Item = Result<Item, io::Error>> + '_ {
+pub fn read_all(rd: &mut dyn io::BufRead) -> impl Iterator<Item = Result<Item, IoError>> + '_ {
     iter::from_fn(move || read_one(rd).transpose())
 }
