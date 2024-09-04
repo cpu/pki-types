@@ -194,34 +194,21 @@ fn read_one_impl(
         if line.starts_with(end_marker) {
             let mut der = vec![0u8; base64::decoded_length(b64buf.len())];
 
-            let der_len = match &section_type[..] {
-                b"RSA PRIVATE KEY" | b"PRIVATE KEY" | b"EC PRIVATE KEY" => {
-                    base64::decode_secret(b64buf, &mut der)
-                }
-                _ => base64::decode_public(b64buf, &mut der),
+            let Ok(new_type) = SectionType::try_from(&section_type[..]) else {
+                // Error?
+                return Ok(ControlFlow::Break(None));
+            };
+
+            let der_len = if new_type.private() {
+                base64::decode_secret(b64buf, &mut der)
+            } else {
+                base64::decode_public(b64buf, &mut der)
             }
             .map_err(|err| Error::Base64Decode(format!("{err:?}")))?
             .len();
             der.truncate(der_len);
 
-            let item = match section_type.as_slice() {
-                b"CERTIFICATE" => Some(Item::X509Certificate(der.into())),
-                b"PUBLIC KEY" => Some(Item::SubjectPublicKeyInfo(der.into())),
-                b"RSA PRIVATE KEY" => Some(Item::Pkcs1Key(der.into())),
-                b"PRIVATE KEY" => Some(Item::Pkcs8Key(der.into())),
-                b"EC PRIVATE KEY" => Some(Item::Sec1Key(der.into())),
-                b"X509 CRL" => Some(Item::Crl(der.into())),
-                b"CERTIFICATE REQUEST" => Some(Item::Csr(der.into())),
-                _ => {
-                    *section = None;
-                    b64buf.clear();
-                    None
-                }
-            };
-
-            if item.is_some() {
-                return Ok(ControlFlow::Break(item));
-            }
+            return Ok(ControlFlow::Break(Some(new_type.item(der))));
         }
     }
 
@@ -297,4 +284,53 @@ pub(crate) fn read_all_from_slice(
     }
 
     SliceIter { current: pem_slice }
+}
+
+#[non_exhaustive]
+enum SectionType {
+    Certificate,
+    PublicKey,
+    RsaPrivateKey,
+    PrivateKey,
+    EcPrivateKey,
+    Crl,
+    Csr,
+}
+
+impl SectionType {
+    fn private(&self) -> bool {
+        match self {
+            Self::RsaPrivateKey | Self::PrivateKey | Self::EcPrivateKey => true,
+            Self::Certificate | Self::PublicKey | Self::Crl | Self::Csr => false,
+        }
+    }
+
+    fn item(&self, der: Vec<u8>) -> Item {
+        match self {
+            Self::Certificate => Item::X509Certificate(der.into()),
+            Self::PublicKey => Item::SubjectPublicKeyInfo(der.into()),
+            Self::RsaPrivateKey => Item::Pkcs1Key(der.into()),
+            Self::PrivateKey => Item::Pkcs8Key(der.into()),
+            Self::EcPrivateKey => Item::Sec1Key(der.into()),
+            Self::Crl => Item::Crl(der.into()),
+            Self::Csr => Item::Csr(der.into()),
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for SectionType {
+    type Error = ();
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Ok(match value {
+            b"CERTIFICATE" => Self::Certificate,
+            b"PUBLIC KEY" => Self::PublicKey,
+            b"RSA PRIVATE KEY" => Self::RsaPrivateKey,
+            b"PRIVATE KEY" => Self::PrivateKey,
+            b"EC PRIVATE KEY" => Self::EcPrivateKey,
+            b"X509 CRL" => Self::Crl,
+            b"CERTIFICATE REQUEST" => Self::Csr,
+            _ => return Err(()),
+        })
+    }
 }
