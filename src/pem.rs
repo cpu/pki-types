@@ -57,6 +57,7 @@ pub enum Item {
 
 /// Errors that may arise when parsing the contents of a PEM file
 #[derive(Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// a section is missing its "END marker" line
     MissingSectionEnd {
